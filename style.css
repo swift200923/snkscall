@@ -1,0 +1,101 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  background: #000;
+  color: #fff;
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* AUTH */
+#auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+#auth-overlay input {
+  padding: 12px;
+  background: #111;
+  border: 1px solid #333;
+  color: white;
+  width: 220px;
+}
+
+#auth-overlay button {
+  padding: 10px 20px;
+  background: white;
+  color: black;
+  border: none;
+  cursor: pointer;
+}
+
+/* CHAT */
+#chat-container {
+  display: none;
+  flex-direction: column;
+  height: 100vh;
+}
+
+header {
+  padding: 14px;
+  text-align: center;
+  border-bottom: 1px solid #222;
+  font-weight: 600;
+}
+
+#messages {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.msg {
+  max-width: 75%;
+  padding: 10px 14px;
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 6px;
+}
+
+.msg.mine {
+  align-self: flex-end;
+}
+
+.msg.theirs {
+  align-self: flex-start;
+}
+
+.input-area {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid #222;
+}
+
+.input-area input {
+  flex: 1;
+  padding: 12px;
+  background: #111;
+  border: 1px solid #333;
+  color: white;
+}
+
+.input-area button {
+  padding: 12px 18px;
+  background: white;
+  color: black;
+  border: none;
+  cursor: pointer;
+}
