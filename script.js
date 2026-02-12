@@ -1,15 +1,13 @@
 /* ===== CONFIG ===== */
 const SUPABASE_URL = "https://fqubarbjmryjoqfexuqz.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsImV4cCI6MjA4NjE0MDI2NX0.AnL_5uMC7gqIUGqexoiOM2mYFsxjZjVF21W-CUdTPBg";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZxdWJhcmJqbXJ5am9xZmV4dXF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1NjQyNjUsImV4cCI6MjA4NjE0MDI2NX0.AnL_5uMC7gqIUGqexoiOM2mYFsxjZjVF21W-CUdTPBg";
 const SECRET_PASS = "dada"; 
 const WIPE_CODE = "808801"; 
 
+// Initialize Client
 const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// PeerJS Variables
-let myPeer;
-let currentCall;
-
+// Wait for HTML to be ready so login/send buttons actually work
 window.onload = () => {
     let senderId = localStorage.getItem("sender_id") || crypto.randomUUID();
     localStorage.setItem("sender_id", senderId);
@@ -21,10 +19,8 @@ window.onload = () => {
     const msgInput = document.getElementById("msg-input");
     const loginBtn = document.getElementById("login-btn");
     const sendBtn = document.getElementById("send-btn");
-    const callBtn = document.getElementById("call-btn");
 
     let channel = null;
-    let loggedIn = false;
 
     /* LOGIN LOGIC */
     loginBtn.onclick = async () => {
@@ -33,89 +29,41 @@ window.onload = () => {
             alert("Wrong password");
             return;
         }
-        loggedIn = true;
         authOverlay.style.display = "none";
         chatContainer.style.display = "flex";
         await loadMessages();
         initRealtime();
-        initPeer(); // Start PeerJS after login
     };
 
-    /* PEERJS INITIALIZATION */
-    function initPeer() {
-        // We use your existing senderId as the Peer ID
-        myPeer = new Peer(senderId);
-
-        myPeer.on('open', (id) => console.log('Peer ID:', id));
-
-        // Handle Incoming Calls
-        myPeer.on('call', async (call) => {
-            if (confirm("Incoming Voice Call. Accept?")) {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                call.answer(stream);
-                call.on('stream', (remoteStream) => {
-                    document.getElementById('remote-audio').srcObject = remoteStream;
-                });
-                currentCall = call;
-            }
-        });
-    }
-
-    /* REALTIME SYNC */
+    /* REALTIME SYNC (Wipe Signal + Delete Detection) */
     function initRealtime() {
         if (channel) return;
         channel = client
             .channel("public-room")
             .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, 
             payload => {
-                const msg = payload.new;
-                
-                // 1. Instant Wipe Logic
-                if ((payload.eventType === "INSERT" && msg.content === WIPE_CODE) || payload.eventType === "DELETE") {
+                // If a new message is the wipe code OR if a DELETE event happens
+                if ((payload.eventType === "INSERT" && payload.new.content === WIPE_CODE) || payload.eventType === "DELETE") {
                     messagesBox.innerHTML = "";
-                } 
-                // 2. Incoming Call Signal Logic
-                else if (payload.eventType === "INSERT" && msg.content === "SIGNAL_CALL_START" && msg.sender_id !== senderId) {
-                    console.log("Peer signaling start call to:", msg.sender_id);
-                    startVoiceCall(msg.sender_id);
-                }
-                // 3. Normal Message Logic
-                else if (payload.eventType === "INSERT") {
-                    renderMessage(msg);
+                } else if (payload.eventType === "INSERT") {
+                    renderMessage(payload.new);
                 }
             })
             .subscribe();
     }
 
-    async function startVoiceCall(targetId) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const call = myPeer.call(targetId, stream);
-        call.on('stream', (remoteStream) => {
-            document.getElementById('remote-audio').srcObject = remoteStream;
-        });
-        currentCall = call;
-    }
-
-    /* CALL BUTTON CLICK */
-    callBtn.onclick = async () => {
-        // Send a signal via Supabase to tell the other person to connect
-        await client.from("messages").insert({ 
-            content: "SIGNAL_CALL_START", 
-            sender_id: senderId 
-        });
-        alert("Calling...");
-    };
-
     /* LOAD HISTORY */
     async function loadMessages() {
         const { data, error } = await client.from("messages").select("*").order("created_at");
-        if (error) return;
+        if (error) {
+            console.error("Supabase Error:", error.message);
+            return;
+        }
         messagesBox.innerHTML = "";
         if (data) {
             const isWiped = data.some(m => m.content === WIPE_CODE);
             if (!isWiped) {
-                // Filter out signaling messages from history
-                data.filter(m => m.content !== "SIGNAL_CALL_START").forEach(renderMessage);
+                data.forEach(renderMessage);
             }
         }
         messagesBox.scrollTop = messagesBox.scrollHeight;
@@ -123,7 +71,6 @@ window.onload = () => {
 
     /* RENDER MESSAGE */
     function renderMessage(msg) {
-        if(msg.content === "SIGNAL_CALL_START") return; // Don't show call signals as text
         const div = document.createElement("div");
         div.className = "msg " + (msg.sender_id === senderId ? "mine" : "theirs");
         div.textContent = msg.content;
@@ -136,18 +83,27 @@ window.onload = () => {
         const text = msgInput.value.trim();
         if (!text) return;
 
+        // 🔥 THE WIPE TRIGGER
         if (text === WIPE_CODE) {
+            // Send signal to others
             await client.from("messages").insert({ content: WIPE_CODE, sender_id: senderId });
+            // Hard delete from DB
             await client.from("messages").delete().neq("id", 0);
             messagesBox.innerHTML = "";
             msgInput.value = "";
             return;
         }
 
-        const { error } = await client.from("messages").insert({ content: text, sender_id: senderId });
+        const { error } = await client.from("messages").insert({ 
+            content: text, 
+            sender_id: senderId 
+        });
 
-        if (!error) {
+        if (error) {
+            alert("Send Error: " + error.message);
+        } else {
             msgInput.value = "";
+            // Telegram Notification
             fetch(`${SUPABASE_URL}/functions/v1/dynamic-handler`, {
                 method: "POST",
                 headers: {
@@ -162,15 +118,4 @@ window.onload = () => {
 
     sendBtn.onclick = sendMessage;
     msgInput.onkeydown = (e) => { if (e.key === "Enter") sendMessage(); };
-
-    /* LOCK ON TAB HIDE */
-    document.addEventListener("visibilitychange", () => {
-        if (!document.hidden || !loggedIn) return;
-        loggedIn = false;
-        messagesBox.innerHTML = "";
-        chatContainer.style.display = "none";
-        authOverlay.style.display = "flex";
-        passInput.value = "";
-        if (channel) { client.removeChannel(channel); channel = null; }
-    });
 };
